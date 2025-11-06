@@ -27,7 +27,12 @@ public class ProductProviderImpl implements ProductProvider<Product> {
     public boolean isDuplicate(Product product) {
         // 새로 생성된 Product는 ID가 null이므로 name과 member로 중복 체크
         if (product.getId() == null) {
-            return productRepository.existsByNameAndMember(product.getName(), product.getMember());
+            boolean exists = productRepository.existsByNameAndMember(product.getName(), product.getMember());
+            log.debug("🔍 isDuplicate 체크: 이름={}, 멤버ID={}, 존재여부={}", 
+                    product.getName(), 
+                    product.getMember() != null ? product.getMember().getId() : "null",
+                    exists);
+            return exists;
         }
         // 이미 저장된 Product는 ID로 체크
         return productRepository.existsById(product.getId());
@@ -35,7 +40,23 @@ public class ProductProviderImpl implements ProductProvider<Product> {
 
     @Override
     public Product save(Product product) {
-        return productRepository.save(product);
+        log.info("💾💾💾 Product.save() 호출: 이름={}, 가격={}, 브랜드={}", 
+                product.getName(), product.getPrice(),
+                product.getBrand() != null ? product.getBrand().getBrandName() : "null");
+        log.info("💾💾💾 INSERT 쿼리 실행 전 - ID: {}", product.getId());
+        
+        Product saved = productRepository.save(product);
+        
+        log.info("✅✅✅ Product.save() 완료: 저장된 ID={}, 이름={}", 
+                saved.getId(), saved.getName());
+        
+        if (saved.getId() == null) {
+            log.error("❌❌❌ 저장 후에도 ID가 null입니다! INSERT 실패 가능성!");
+        } else {
+            log.info("✅✅✅ INSERT 성공! Product ID={} 할당됨", saved.getId());
+        }
+        
+        return saved;
     }
 
     /**

@@ -306,28 +306,33 @@ public abstract class BaseCrawlingService<PRODUCT, CATEGORY, USER> {
                 Integer batchSaved = transactionTemplate.execute(status -> {
                     try {
                         // 1. Product 개별 저장 및 관련 데이터 저장
-                        log.info("🚀 배치 저장 시작: {}개 상품", batch.size());
+                        log.info("🚀🚀🚀 배치 저장 시작: {}개 상품", batch.size());
                         int batchSavedCount = 0;
+                        int batchSkippedCount = 0;
+                        int batchErrorCount = 0;
                         
                         for (int batchIdx = 0; batchIdx < batch.size(); batchIdx++) {
-                            CreateProductDto productDto = batch.get(batchIdx);
-                            Product pr = productDto.getProduct();
-                            pr.changeDuplicatedName();
-                            
-                            // 중복 체크
-                            if (productProviderImpl.isDuplicate(pr)) {
-                                log.debug("상품 중복 스킵: {}", pr.getName());
-                                continue;
-                            }
-                            
-                            // 1. Product 개별 저장 (ID가 자동으로 할당됨)
-                            log.info("💾 Product 저장 시작: {}", pr.getName());
-                            Product savedProduct = productProviderImpl.save(pr);
-                            
-                            if (savedProduct == null || savedProduct.getId() == null) {
-                                log.error("❌ Product 저장 실패: {}", pr.getName());
-                                continue;
-                            }
+                            try {
+                                CreateProductDto productDto = batch.get(batchIdx);
+                                Product pr = productDto.getProduct();
+                                
+                                log.info("📦 상품 처리 시작 [{}/{}]: 원래이름={}", 
+                                        batchIdx + 1, batch.size(), pr.getName());
+                                
+                                // 이름 변경 (중복 체크 없이)
+                                pr.changeDuplicatedName();
+                                log.info("📝 이름 변경 후: {}", pr.getName());
+                                
+                                // 1. Product 개별 저장 (ID가 자동으로 할당됨)
+                                log.info("💾💾💾 Product 저장 시작: {}", pr.getName());
+                                Product savedProduct = productProviderImpl.save(pr);
+                                
+                                if (savedProduct == null || savedProduct.getId() == null) {
+                                    log.error("❌❌❌ Product 저장 실패: savedProduct={}, ID={}", 
+                                            savedProduct, savedProduct != null ? savedProduct.getId() : "null");
+                                    batchErrorCount++;
+                                    continue;
+                                }
                             
                             log.info("✅ Product 저장 완료: ID={}, 이름={}", savedProduct.getId(), savedProduct.getName());
                             batchSavedCount++;
@@ -394,13 +399,25 @@ public abstract class BaseCrawlingService<PRODUCT, CATEGORY, USER> {
                                     optionMappingProviderImpl.save(sizeOpm);
                                 }
                             }
-                            log.debug("✅ ProductOptionMapping 저장 완료: Product ID={}", savedProduct.getId());
+                                log.debug("✅ ProductOptionMapping 저장 완료: Product ID={}", savedProduct.getId());
+                            } catch (Exception e) {
+                                log.error("❌❌❌ 상품 저장 중 예외 발생 [{}/{}]: {}", 
+                                        batchIdx + 1, batch.size(), e.getMessage(), e);
+                                batchErrorCount++;
+                                // 개별 상품 저장 실패해도 다음 상품 계속 처리
+                            }
                         }
                         
-                        log.info("✅ 배치 저장 완료: {}개 상품 저장됨", batchSavedCount);
+                        log.info("📊📊📊 배치 저장 완료: 총 {}개 중 저장됨 {}개, 스킵됨 {}개, 에러 {}개", 
+                                batch.size(), batchSavedCount, batchSkippedCount, batchErrorCount);
+                        
+                        if (batchSavedCount == 0) {
+                            log.error("❌❌❌ 저장된 상품이 0개입니다! 모든 상품이 중복이거나 에러 발생!");
+                        }
+                        
                         return batchSavedCount;
                     } catch (Exception e) {
-                        log.error("배치 저장 중 에러: {}", e.getMessage(), e);
+                        log.error("❌❌❌ 배치 저장 트랜잭션 에러: {}", e.getMessage(), e);
                         status.setRollbackOnly();
                         throw e;
                     }
