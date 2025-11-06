@@ -1,0 +1,72 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.3.5'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.homesweet'
+version = '0.0.1-SNAPSHOT'
+description = 'HomeSweetCrawler'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+configurations {
+    compileOnly {
+        extendsFrom annotationProcessor
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-batch'
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    compileOnly 'org.projectlombok:lombok'
+    runtimeOnly 'com.h2database:h2'
+    runtimeOnly 'com.mysql:mysql-connector-j'
+    annotationProcessor 'org.projectlombok:lombok'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.batch:spring-batch-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+    // HTML 파서 (Jsoup)
+    implementation 'org.jsoup:jsoup:1.18.1'
+
+    // JSON 처리 (크롤링한 데이터를 객체로 매핑)
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.2'
+
+    testCompileOnly 'org.projectlombok:lombok:1.18.34'
+    testAnnotationProcessor 'org.projectlombok:lombok:1.18.34'
+
+    implementation 'org.seleniumhq.selenium:selenium-java:4.25.0'
+    implementation 'io.github.bonigarcia:webdrivermanager:5.9.2'
+
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+    implementation 'org.springframework.boot:spring-boot-starter-webflux'
+
+    implementation 'io.github.resilience4j:resilience4j-reactor:2.2.0'
+    implementation 'io.github.resilience4j:resilience4j-ratelimiter:2.2.0'
+
+    // Google Guava RateLimiter
+    implementation 'com.google.guava:guava:32.1.3-jre'
+
+    // JavaFaker for generating fake data
+    implementation('com.github.javafaker:javafaker:1.0.2') {
+        exclude group: 'org.yaml', module: 'snakeyaml'
+    }
+    
+    // SnakeYAML 명시적 추가 (일반 버전 사용)
+    implementation 'org.yaml:snakeyaml:2.2'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
