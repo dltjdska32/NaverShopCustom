@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -37,6 +38,49 @@ public class ProductProviderImpl implements ProductProvider<Product> {
         return productRepository.save(product);
     }
 
+    /**
+     * 저장된 상품 리스트를 반환하는 메서드 (내부 사용)
+     */
+    public List<Product> saveAllAndReturn(List<Product> products) {
+        if (products.isEmpty()) {
+            return new ArrayList<>();
+        }
+        
+        // 중복 제거 후 저장
+        List<Product> nonDuplicates = products.stream()
+                .filter(product -> !isDuplicate(product))
+                .toList();
+        
+        if (nonDuplicates.isEmpty()) {
+            log.warn("⚠️ 모든 상품이 중복입니다. 저장하지 않습니다.");
+            return new ArrayList<>();
+        }
+        
+        // 실제로 저장된 상품들 (ID가 자동으로 할당됨)
+        log.info("💾 ========== DB INSERT 시작 ==========");
+        log.info("💾 저장 시도할 상품 개수: {}개", nonDuplicates.size());
+        log.info("💾 SQL INSERT 쿼리가 아래에 출력됩니다 (show-sql: true 설정됨)");
+        
+        List<Product> savedProducts;
+        try {
+            savedProducts = productRepository.saveAll(nonDuplicates);
+            
+            log.info("✅ ========== DB INSERT 완료 ==========");
+            log.info("✅ 저장된 상품 개수: {}개", savedProducts.size());
+            
+            if (savedProducts.isEmpty()) {
+                log.error("❌❌❌ 저장된 상품이 0개입니다! INSERT가 실행되지 않았을 수 있습니다! ❌❌❌");
+            } else {
+                log.info("✅✅✅ INSERT 성공! {}개 상품이 DB에 저장되었습니다! ✅✅✅", savedProducts.size());
+            }
+        } catch (Exception e) {
+            log.error("❌❌❌ INSERT 실패! 에러 발생: {}", e.getMessage(), e);
+            throw e;
+        }
+        
+        return savedProducts;
+    }
+    
     @Override
     public int saveAll(List<Product> products) {
         if (products.isEmpty()) {

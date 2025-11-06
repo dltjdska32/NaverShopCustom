@@ -305,84 +305,54 @@ public abstract class BaseCrawlingService<PRODUCT, CATEGORY, USER> {
                 // 배치 단위로 트랜잭션 처리
                 Integer batchSaved = transactionTemplate.execute(status -> {
                     try {
-                        // 1. Product 준비 및 저장
-                        List<Product> products = new ArrayList<>();
-                        for (CreateProductDto productDto : batch) {
+                        // 1. Product 개별 저장 및 관련 데이터 저장
+                        log.info("🚀 배치 저장 시작: {}개 상품", batch.size());
+                        int batchSavedCount = 0;
+                        
+                        for (int batchIdx = 0; batchIdx < batch.size(); batchIdx++) {
+                            CreateProductDto productDto = batch.get(batchIdx);
                             Product pr = productDto.getProduct();
                             pr.changeDuplicatedName();
-                            products.add(pr);
-                        }
-                        
-                        // 1. Product 배치 저장 (ID가 자동으로 채워짐)
-                        log.info("🚀 배치 저장 시작: {}개 상품", products.size());
-                        int actuallySavedProductCount = productProviderImpl.saveAll(products);
-                        
-                        if (actuallySavedProductCount == 0) {
-                            log.error("❌ 배치 저장 실패: 상품 0개 저장됨 (요청: {}개) - INSERT 실패 또는 모든 상품 중복", products.size());
-                            return 0;
-                        }
-                        
-                        if (actuallySavedProductCount < products.size()) {
-                            log.warn("⚠️ 배치 저장 부분 실패: 요청 {}개 중 {}개만 저장됨 ({}개는 중복으로 제외됨)", 
-                                    products.size(), actuallySavedProductCount, 
-                                    products.size() - actuallySavedProductCount);
-                        }
-                        
-                        // 실제 저장된 상품만 사용 (ID가 할당된 것들)
-                        // 주의: saveAll() 후에도 products 리스트의 ID는 null이므로
-                        // 저장된 상품을 다시 조회하거나 다른 방법 사용 필요
-                        List<Product> savedProducts = products.stream()
-                                .filter(p -> p.getId() != null)
-                                .toList();
-                        
-                        log.info("🔍 저장 후 products 리스트 ID 확인: 총 {}개 중 ID가 null이 아닌 것 {}개", 
-                                products.size(), savedProducts.size());
-                        
-                        if (savedProducts.isEmpty()) {
-                            log.error("❌ 저장된 상품이 없습니다 (ID가 null) - saveAll() 후 ID가 products 리스트에 반영되지 않음");
-                            log.error("💡 해결 방법: saveAll()이 반환한 상품 리스트를 사용하거나, 저장 후 다시 조회 필요");
-                            return 0;
-                        }
-                        
-                        log.info("✅ 배치 저장 성공: {}개 상품 저장됨 (ID 할당됨: {}개)", 
-                                actuallySavedProductCount, savedProducts.size());
-                        
-                        // 2. ProductImage 배치 생성 및 저장
-                        List<ProductImage> images = new ArrayList<>();
-                        for (int j = 0; j < batch.size() && j < savedProducts.size(); j++) {
-                            String mainImg = batch.get(j).getMainImg();
+                            
+                            // 중복 체크
+                            if (productProviderImpl.isDuplicate(pr)) {
+                                log.debug("상품 중복 스킵: {}", pr.getName());
+                                continue;
+                            }
+                            
+                            // 1. Product 개별 저장 (ID가 자동으로 할당됨)
+                            log.info("💾 Product 저장 시작: {}", pr.getName());
+                            Product savedProduct = productProviderImpl.save(pr);
+                            
+                            if (savedProduct == null || savedProduct.getId() == null) {
+                                log.error("❌ Product 저장 실패: {}", pr.getName());
+                                continue;
+                            }
+                            
+                            log.info("✅ Product 저장 완료: ID={}, 이름={}", savedProduct.getId(), savedProduct.getName());
+                            batchSavedCount++;
+                            
+                            // 2. ProductImage 저장
+                            String mainImg = productDto.getMainImg();
                             ProductImage img = ProductImage.createDefaultProductImage(
-                                    ProductImageType.MAIN, mainImg, savedProducts.get(j));
-                            images.add(img);
-                        }
-                        if (!images.isEmpty()) {
-                            imageProviderIml.saveAll(images);
-                        }
-                        
-                        // 3. ProductDetail 배치 생성 및 저장
-                        List<ProductDetail> details = new ArrayList<>();
-                        for (Product savedProduct : savedProducts) {
+                                    ProductImageType.MAIN, mainImg, savedProduct);
+                            imageProviderIml.save(img);
+                            log.debug("✅ ProductImage 저장 완료: Product ID={}", savedProduct.getId());
+                            
+                            // 3. ProductDetail 저장 (4개)
+                            List<ProductDetail> details = new ArrayList<>();
                             for (int k = 0; k < 4; k++) {
                                 ProductDetail pd = ProductDetail.createDefaultProductDetail(savedProduct, 100000);
-                                details.add(pd);
+                                ProductDetail savedDetail = productDetailProviderImpl.save(pd);
+                                details.add(savedDetail);
                             }
-                        }
-                        productDetailProviderImpl.saveAll(details);
-                        
-                        // 4. ProductOptionMapping 배치 생성 및 저장
-                        List<ProductOptionMapping> mappings = new ArrayList<>();
-                        int detailIndex = 0;
-                        
-                        for (int productIdx = 0; productIdx < savedProducts.size(); productIdx++) {
-                            Product savedProduct = savedProducts.get(productIdx);
+                            log.debug("✅ ProductDetail 저장 완료: {}개, Product ID={}", details.size(), savedProduct.getId());
+                            
+                            // 4. ProductOptionMapping 저장
                             Long sizeOpNum = 0L;
                             Long colorOpNum = 0L;
                             
-                            for (int k = 0; k < 4; k++) {
-                                if (detailIndex >= details.size()) break;
-                                
-                                ProductDetail savedProductDetail = details.get(detailIndex++);
-                                
+                            for (ProductDetail savedProductDetail : details) {
                                 // Option ID 생성
                                 Long randomColorOpNum = ThreadLocalRandom.current().nextLong(1, 13);
                                 if (colorOpNum.equals(randomColorOpNum)) {
@@ -420,18 +390,15 @@ public abstract class BaseCrawlingService<PRODUCT, CATEGORY, USER> {
                                             colorOp, savedProductDetail);
                                     ProductOptionMapping sizeOpm = ProductOptionMapping.createDefaultProductOptionMapping(
                                             sizeOp, savedProductDetail);
-                                    mappings.add(colorOpm);
-                                    mappings.add(sizeOpm);
+                                    optionMappingProviderImpl.save(colorOpm);
+                                    optionMappingProviderImpl.save(sizeOpm);
                                 }
                             }
+                            log.debug("✅ ProductOptionMapping 저장 완료: Product ID={}", savedProduct.getId());
                         }
                         
-                        if (!mappings.isEmpty()) {
-                            optionMappingProviderImpl.saveAll(mappings);
-                        }
-                        
-                        // 실제 저장된 상품 개수 반환
-                        return actuallySavedProductCount;
+                        log.info("✅ 배치 저장 완료: {}개 상품 저장됨", batchSavedCount);
+                        return batchSavedCount;
                     } catch (Exception e) {
                         log.error("배치 저장 중 에러: {}", e.getMessage(), e);
                         status.setRollbackOnly();
