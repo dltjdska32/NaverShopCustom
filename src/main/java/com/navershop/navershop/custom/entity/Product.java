@@ -11,7 +11,7 @@ import com.github.javafaker.Faker;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
+import java.util.Random;
 
 /**
  * 상품 엔티티
@@ -65,11 +65,18 @@ import java.util.Locale;
      @Builder.Default
      private List<ProductImage> productImages = new ArrayList<>();
 
-     @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true)
-     @Builder.Default
-     private List<ProductDetail> productDetails = new ArrayList<>();
+    @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<ProductDetail> productDetails = new ArrayList<>();
 
-     public static Product createDefaultProduct(String name,
+    /// 중복 상품명 변경 시 사용할 형용사 리스트
+    private static final List<String> ADJECTIVES = List.of(
+            "프리미엄", "럭셔리", "스타일리시", "모던", "클래식", "트렌디", "세련된", "고급스러운",
+            "편안한", "부드러운", "따뜻한", "시원한", "깔끔한", "세련된", "우아한", "화사한",
+            "강력한", "효과적인", "실용적인", "혁신적인", "독특한", "특별한", "프리미엄", "럭셔리"
+    );
+
+    public static Product createDefaultProduct(String name,
                                                 String info,
                                                 Long price,
                                                 Brand brand,
@@ -158,11 +165,22 @@ import java.util.Locale;
      }
 
      /// 중복 상품명 변경 메서드
-     /// 중복된 경우 Faker를 사용하여 새로운 이름 생성 (한국어)
+     /// 형식: 형용사 + 브랜드명 + 원래이름
      public void changeDuplicatedName() {
-  
-         Faker faker = new Faker(Locale.KOREA);
-         this.name = this.name + "_" + faker.commerce().productName();
+
+         // 형용사 리스트
+         List<String> adjectives = List.of(
+                 "프리미엄", "럭셔리", "스타일리시", "모던", "클래식", "트렌디", "세련된", "고급스러운",
+                 "편안한", "부드러운", "따뜻한", "시원한", "깔끔한", "우아한", "화사한",
+                 "강력한", "효과적인", "실용적인", "혁신적인", "독특한", "특별한"
+         );
+         
+         Random random = new Random();
+         String randomAdjective = adjectives.get(random.nextInt(adjectives.size()));
+         Faker faker = new Faker();
+         String brandName = faker.commerce().productName();
+         
+         this.name = randomAdjective + " " + brandName + " " + this.name;
      }
 
  }
