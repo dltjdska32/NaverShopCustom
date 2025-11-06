@@ -80,13 +80,15 @@ public abstract class BaseCrawlingService<PRODUCT, CATEGORY, USER> {
         this.crawlingExecutor = crawlingExecutor;
         
         // TransactionTemplate 설정
-        // 락 타임아웃 방지를 위해 타임아웃을 60초로 증가
+        // 락 타임아웃 방지를 위해 타임아웃을 120초로 증가 (개별 상품 저장 시간 고려)
         this.transactionTemplate = new TransactionTemplate(transactionManager);
-        this.transactionTemplate.setTimeout(60);
+        this.transactionTemplate.setTimeout(120);
         // 락 충돌 감소를 위해 READ_COMMITTED 격리 수준 사용
         this.transactionTemplate.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         // 읽기 전용이 아니므로 false
         this.transactionTemplate.setReadOnly(false);
+        // 전파 속성: REQUIRED (기본값, 트랜잭션이 있으면 사용, 없으면 생성)
+        this.transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRED);
     }
 
     public CrawlingResult crawlAllCategoriesReactive(Long userId, int productsPerCategory) {
@@ -220,15 +222,18 @@ public abstract class BaseCrawlingService<PRODUCT, CATEGORY, USER> {
             rateLimiter.acquire(); // 1초에 1명만 이 라인을 통과합니다.
 
             // 🚀 Reactive 방식으로 API 호출
+            String searchKeyword = brand.get(i) + " " + keyword;
+            log.debug("🔍 API 호출 시작: '{}' (count={}, display={})", searchKeyword, count, display);
+            
             NaverShoppingResponse response = apiClient.searchMultiplePagesReactive(
-                    brand.get(i) + " " +  keyword , count, display, "sim");
+                    searchKeyword, count, display, "sim");
 
             if (response == null || response.getItems() == null || response.getItems().isEmpty()) {
                 log.warn("'{}{}'에 대한 검색 결과 없음. 다음 브랜드로 넘어갑니다.", brand.get(i), keyword);
                 continue; // return 0; (X) -> continue; (O)
             }
 
-
+            log.info("✅ API 응답 받음: '{}' - {}개 아이템", searchKeyword, response.getItems().size());
 
             List<CreateProductDto> list = response.getItems().stream()
                     .limit(count)
@@ -247,102 +252,91 @@ public abstract class BaseCrawlingService<PRODUCT, CATEGORY, USER> {
                     })
                     .toList();
 
+            log.info("📝 상품 변환 완료: '{}' - {}개 상품 변환됨 (limit={})", searchKeyword, list.size(), count);
 
             pr.addAll(list);
+            log.info("브랜드 '{}' 처리 완료: {}개 상품 추가됨 (현재 총 {}개)", brand.get(i), list.size(), pr.size());
         }
 
+        log.info("📦📦📦 카테고리 '{}' 크롤링 완료: 총 {}개 상품 수집됨", categoryName, pr.size());
 
-        // 🚀 Reactive 방식으로 API 호출
-//        NaverShoppingResponse response = apiClient.searchMultiplePagesReactive(
-//                keyword, count, display, "sim");
-
-//        if (response == null || response.getItems() == null || response.getItems().isEmpty()) {
-//            return 0;
-//        }
-
-        // 병렬 스트림으로 Product 변환
-//        List<PRODUCT> products = response.getItems().stream()
-//                .limit(count)
-//                .parallel()
-//                .map(item -> {
-//                    PRODUCT product = productMapper.map(item, category, seller);
-//
-//                   //  옵션 생성
-//                    if (optionGenerator != null && optionGenerator.needsOptions(categoryName)) {
-//                        optionGenerator.generateAndAddOptions(product, categoryName);
-//                    }
-//
-//
-//                    return product;
-//                })
-//                .toList();
-
-//        log.info("{}개 상품 변환 완료", products.size());
+        if (pr.isEmpty()) {
+            log.warn("⚠️⚠️⚠️ 수집된 상품이 0개입니다! 저장할 데이터가 없습니다.");
+            return 0;
+        }
 
         // 배치 저장
-        return saveProductsBatch(pr);
+        log.info("🚀🚀🚀 saveProductsBatch 호출 시작: {}개 상품", pr.size());
+        int savedCount = saveProductsBatch(pr);
+        log.info("✅✅✅ saveProductsBatch 완료: {}개 저장됨", savedCount);
+        return savedCount;
     }
 
     /**
      * 배치 저장 (개선된 버전 - 실제 배치 INSERT 사용)
      */
     protected int saveProductsBatch(List<CreateProductDto> createProductDtos) {
+        log.info("🔍🔍🔍 saveProductsBatch 호출됨: createProductDtos.size() = {}", createProductDtos != null ? createProductDtos.size() : "null");
+        
+        if (createProductDtos == null) {
+            log.error("❌❌❌ createProductDtos가 null입니다!");
+            return 0;
+        }
+        
         if (createProductDtos.isEmpty()) {
+            log.warn("⚠️⚠️⚠️ createProductDtos가 비어있습니다! 저장할 데이터가 없습니다.");
             return 0;
         }
 
-        log.info("💾 배치 저장 중... ({}개)", createProductDtos.size());
+        log.info("💾💾💾 배치 저장 시작: {}개 상품 저장 시도", createProductDtos.size());
 
         int savedCount = 0;
-        int batchSize = 100; // 배치 크기 증가 (배치 INSERT 사용으로 더 많이 가능)
+        int batchSize = 50; // 배치 크기 감소 (트랜잭션 충돌 방지, 개별 상품 단위 트랜잭션 사용)
         int skippedCount = 0;
 
         for (int i = 0; i < createProductDtos.size(); i += batchSize) {
             int end = Math.min(i + batchSize, createProductDtos.size());
             List<CreateProductDto> batch = createProductDtos.subList(i, end);
 
-            try {
-                // 배치 단위로 트랜잭션 처리
-                Integer batchSaved = transactionTemplate.execute(status -> {
-                    try {
-                        // 1. Product 개별 저장 및 관련 데이터 저장
-                        log.info("🚀🚀🚀 배치 저장 시작: {}개 상품", batch.size());
-                        int batchSavedCount = 0;
-                        int batchSkippedCount = 0;
-                        int batchErrorCount = 0;
-                        
-                        for (int batchIdx = 0; batchIdx < batch.size(); batchIdx++) {
-                            try {
-                                CreateProductDto productDto = batch.get(batchIdx);
-                                Product pr = productDto.getProduct();
-                                
-                                log.info("📦 상품 처리 시작 [{}/{}]: 원래이름={}", 
-                                        batchIdx + 1, batch.size(), pr.getName());
-                                
-                                // 이름 변경 (중복 체크 없이)
-                                pr.changeDuplicatedName();
-                                log.info("📝 이름 변경 후: {}", pr.getName());
-                                
-                                // 1. Product 개별 저장 (ID가 자동으로 할당됨)
-                                log.info("💾💾💾 Product 저장 시작: {}", pr.getName());
-                                Product savedProduct = productProviderImpl.save(pr);
-                                
-                                if (savedProduct == null || savedProduct.getId() == null) {
-                                    log.error("❌❌❌ Product 저장 실패: savedProduct={}, ID={}", 
-                                            savedProduct, savedProduct != null ? savedProduct.getId() : "null");
-                                    batchErrorCount++;
-                                    continue;
-                                }
+            log.info("🚀🚀🚀 배치 저장 시작: {}개 상품", batch.size());
+            int batchSavedCount = 0;
+            int batchSkippedCount = 0;
+            int batchErrorCount = 0;
+            
+            // 개별 상품 단위로 트랜잭션 처리 (롤백 최소화)
+            for (int batchIdx = 0; batchIdx < batch.size(); batchIdx++) {
+                CreateProductDto productDto = batch.get(batchIdx);
+                final int currentIdx = batchIdx; // final 변수로 복사
+                final int batchSizeForLog = batch.size(); // final 변수로 복사
+                
+                try {
+                    // 개별 상품 단위 트랜잭션 (실패해도 다른 상품에 영향 없음)
+                    Integer result = transactionTemplate.execute(status -> {
+                        try {
+                            Product pr = productDto.getProduct();
                             
-                            log.info("✅ Product 저장 완료: ID={}, 이름={}", savedProduct.getId(), savedProduct.getName());
-                            batchSavedCount++;
+                            log.debug("📦 상품 처리 시작 [{}/{}]: 원래이름={}", 
+                                    currentIdx + 1, batchSizeForLog, pr.getName());
+                            
+                            // 이름 변경 (중복 체크 없이)
+                            pr.changeDuplicatedName();
+                            
+                            // 1. Product 개별 저장 (ID가 자동으로 할당됨)
+                            Product savedProduct = productProviderImpl.save(pr);
+                            
+                            if (savedProduct == null || savedProduct.getId() == null) {
+                                log.error("❌❌❌ Product 저장 실패: savedProduct={}, ID={}", 
+                                        savedProduct, savedProduct != null ? savedProduct.getId() : "null");
+                                return 0;
+                            }
+                        
+                            log.debug("✅ Product 저장 완료: ID={}, 이름={}", savedProduct.getId(), savedProduct.getName());
                             
                             // 2. ProductImage 저장
                             String mainImg = productDto.getMainImg();
                             ProductImage img = ProductImage.createDefaultProductImage(
                                     ProductImageType.MAIN, mainImg, savedProduct);
                             imageProviderIml.save(img);
-                            log.debug("✅ ProductImage 저장 완료: Product ID={}", savedProduct.getId());
                             
                             // 3. ProductDetail 저장 (4개)
                             List<ProductDetail> details = new ArrayList<>();
@@ -351,7 +345,6 @@ public abstract class BaseCrawlingService<PRODUCT, CATEGORY, USER> {
                                 ProductDetail savedDetail = productDetailProviderImpl.save(pd);
                                 details.add(savedDetail);
                             }
-                            log.debug("✅ ProductDetail 저장 완료: {}개, Product ID={}", details.size(), savedProduct.getId());
                             
                             // 4. ProductOptionMapping 저장
                             Long sizeOpNum = 0L;
@@ -399,43 +392,44 @@ public abstract class BaseCrawlingService<PRODUCT, CATEGORY, USER> {
                                     optionMappingProviderImpl.save(sizeOpm);
                                 }
                             }
-                                log.debug("✅ ProductOptionMapping 저장 완료: Product ID={}", savedProduct.getId());
-                            } catch (Exception e) {
-                                log.error("❌❌❌ 상품 저장 중 예외 발생 [{}/{}]: {}", 
-                                        batchIdx + 1, batch.size(), e.getMessage(), e);
-                                batchErrorCount++;
-                                // 개별 상품 저장 실패해도 다음 상품 계속 처리
-                            }
+                            
+                            return 1; // 성공
+                        } catch (Exception e) {
+                            log.error("❌❌❌ 상품 저장 중 예외 발생 [{}/{}]: {}", 
+                                    currentIdx + 1, batchSizeForLog, e.getMessage());
+                            status.setRollbackOnly();
+                            return 0; // 실패 (롤백됨)
                         }
-                        
-                        log.info("📊📊📊 배치 저장 완료: 총 {}개 중 저장됨 {}개, 스킵됨 {}개, 에러 {}개", 
-                                batch.size(), batchSavedCount, batchSkippedCount, batchErrorCount);
-                        
-                        if (batchSavedCount == 0) {
-                            log.error("❌❌❌ 저장된 상품이 0개입니다! 모든 상품이 중복이거나 에러 발생!");
-                        }
-                        
-                        return batchSavedCount;
-                    } catch (Exception e) {
-                        log.error("❌❌❌ 배치 저장 트랜잭션 에러: {}", e.getMessage(), e);
-                        status.setRollbackOnly();
-                        throw e;
+                    });
+                    
+                    if (result != null && result > 0) {
+                        batchSavedCount++;
+                    } else {
+                        batchErrorCount++;
                     }
-                });
-                
-                if (batchSaved != null && batchSaved > 0) {
-                    savedCount += batchSaved;
-                } else {
-                    skippedCount += batch.size();
+                    
+                } catch (org.springframework.transaction.CannotCreateTransactionException e) {
+                    log.warn("⚠️ 트랜잭션 생성 실패 [{}/{}]: {} (재시도 안 함)", 
+                            currentIdx + 1, batchSizeForLog, e.getMessage());
+                    batchErrorCount++;
+                    // 짧은 대기 후 재시도 (선택적)
+                    try {
+                        Thread.sleep(100); // 100ms 대기
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                    }
+                } catch (Exception e) {
+                    log.error("❌❌❌ 상품 저장 실패 [{}/{}]: {}", 
+                            currentIdx + 1, batchSizeForLog, e.getMessage());
+                    batchErrorCount++;
                 }
-                
-            } catch (org.springframework.transaction.CannotCreateTransactionException e) {
-                log.error("⚠️ 배치 트랜잭션 생성 실패: {}", e.getMessage());
-                skippedCount += batch.size();
-            } catch (Exception e) {
-                log.error("배치 저장 실패: {}-{}", i, end, e);
-                skippedCount += batch.size();
             }
+            
+            log.info("📊📊📊 배치 저장 완료: 총 {}개 중 저장됨 {}개, 에러 {}개", 
+                    batch.size(), batchSavedCount, batchErrorCount);
+            
+            savedCount += batchSavedCount;
+            skippedCount += batchErrorCount;
             
             if ((i + batchSize) % 500 == 0 || (i + batchSize) >= createProductDtos.size()) {
                 log.info("저장 진행 상황: {}/{} (저장됨: {}개, 스킵됨: {}개)", 

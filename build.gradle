@@ -65,6 +65,9 @@ dependencies {
     
     // SnakeYAML 명시적 추가 (일반 버전 사용)
     implementation 'org.yaml:snakeyaml:2.2'
+    
+    // Logback EvaluatorFilter를 위한 janino
+    implementation 'org.codehaus.janino:janino:3.1.12'
 }
 
 tasks.named('test') {
