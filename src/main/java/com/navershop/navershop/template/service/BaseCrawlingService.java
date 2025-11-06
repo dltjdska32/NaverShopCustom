@@ -423,6 +423,14 @@ public abstract class BaseCrawlingService<PRODUCT, CATEGORY, USER> {
                             currentIdx + 1, batchSizeForLog, e.getMessage());
                     batchErrorCount++;
                 }
+                log.info("🚀🚀🚀 배치 저장 완료: {}개 상품", batch.size());
+                log.info("✅✅✅ 배치 저장 완료: {}개 상품", batchSavedCount);
+                log.info("❌❌❌ 배치 저장 실패: {}개 상품", batchErrorCount);
+                log.info("⚠️⚠️⚠️ 배치 저장 스킵: {}개 상품", batchSkippedCount);
+                log.info("💾💾💾 배치 저장 완료: {}개 상품", batch.size());
+                log.info("✅✅✅ 배치 저장 완료: {}개 상품", batchSavedCount);
+                log.info("❌❌❌ 배치 저장 실패: {}개 상품", batchErrorCount);
+                log.info("⚠️⚠️⚠️ 배치 저장 스킵: {}개 상품", batchSkippedCount);
             }
             
             log.info("📊📊📊 배치 저장 완료: 총 {}개 중 저장됨 {}개, 에러 {}개", 
