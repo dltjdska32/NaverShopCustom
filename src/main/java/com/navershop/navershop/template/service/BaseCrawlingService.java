@@ -2,10 +2,10 @@ package com.navershop.navershop.template.service;
 
 import com.google.common.util.concurrent.RateLimiter;
 import com.navershop.navershop.custom.adapter.provider.*;
-import com.navershop.navershop.custom.entity.*;
 import com.navershop.navershop.custom.dto.CreateProductDto;
-import com.navershop.navershop.custom.enums.BrandEnum;
+import com.navershop.navershop.custom.entity.*;
 import com.navershop.navershop.custom.entity.enums.ProductImageType;
+import com.navershop.navershop.custom.enums.BrandEnum;
 import com.navershop.navershop.template.adapter.provider.category.CategoryProvider;
 import com.navershop.navershop.template.adapter.mapper.ProductMapper;
 import com.navershop.navershop.template.adapter.option.OptionGenerator;
@@ -78,7 +78,7 @@ public abstract class BaseCrawlingService<PRODUCT, CATEGORY, USER> {
         this.productProviderImpl = productProviderImpl;
         this.rateLimiter = rateLimiter;
         this.crawlingExecutor = crawlingExecutor;
-        
+
         // TransactionTemplate 설정
         // 락 타임아웃 방지를 위해 타임아웃을 60초로 증가
         this.transactionTemplate = new TransactionTemplate(transactionManager);
@@ -111,7 +111,6 @@ public abstract class BaseCrawlingService<PRODUCT, CATEGORY, USER> {
         if (targetCategories == null || targetCategories.isEmpty()) {
             throw new IllegalStateException("No categories configured");
         }
-
         log.info("검색 대상 카테고리 수: {}", targetCategories.size());
 
         AtomicInteger totalProducts = new AtomicInteger(0);
@@ -137,31 +136,31 @@ public abstract class BaseCrawlingService<PRODUCT, CATEGORY, USER> {
                         // 세마포어로 동시 실행 수 제한
                         semaphore.acquire();
 
-                    try {
-                        log.info("카테고리 '{}' 크롤링 시작... [Thread: {}]",
-                                categoryName, Thread.currentThread().getName());
+                        try {
+                            log.info("카테고리 '{}' 크롤링 시작... [Thread: {}]",
+                                    categoryName, Thread.currentThread().getName());
+
                             // 각 스레드에서 User를 다시 로드하여 영속성 컨텍스트 문제 방지
                             USER threadLocalUser = userProvider.findById(finalUserId);
                             if (threadLocalUser == null) {
                                 throw new IllegalStateException("User not found in thread: " + finalUserId);
                             }
 
-                        // Reactive 방식으로 크롤링
-                        int savedCount = crawlAndSaveByCategoryReactive(
+                            // Reactive 방식으로 크롤링
+                            int savedCount = crawlAndSaveByCategoryReactive(
                                     category, threadLocalUser, productsPerCategory);
 
-                        if (savedCount > 0) {
-                            categoryResults.put(categoryId, CategoryResult.success(
-                                    categoryId, categoryName, savedCount));
-                            totalProducts.addAndGet(savedCount);
-                            successCategories.incrementAndGet();
-                            log.info("카테고리 '{}' 완료: {}개 저장", categoryName, savedCount);
-                        } else {
-                            categoryResults.put(categoryId, CategoryResult.noResults(
-                                    categoryId, categoryName));
-                            log.warn("카테고리 '{}'에서 검색 결과 없음", categoryName);
-                        }
-
+                            if (savedCount > 0) {
+                                categoryResults.put(categoryId, CategoryResult.success(
+                                        categoryId, categoryName, savedCount));
+                                totalProducts.addAndGet(savedCount);
+                                successCategories.incrementAndGet();
+                                log.info("카테고리 '{}' 완료: {}개 저장", categoryName, savedCount);
+                            } else {
+                                categoryResults.put(categoryId, CategoryResult.noResults(
+                                        categoryId, categoryName));
+                                log.warn("카테고리 '{}'에서 검색 결과 없음", categoryName);
+                            }
                         } finally {
                             // 항상 세마포어 해제
                             semaphore.release();
@@ -206,6 +205,7 @@ public abstract class BaseCrawlingService<PRODUCT, CATEGORY, USER> {
     /**
      * 카테고리별 크롤링 (Reactive 방식)
      */
+
     protected int crawlAndSaveByCategoryReactive(CATEGORY category, USER seller, int count) {
         String categoryName = categoryProvider.getCategoryName(category);
         String keyword = buildFullCategoryPath(category);
@@ -216,36 +216,68 @@ public abstract class BaseCrawlingService<PRODUCT, CATEGORY, USER> {
 
         List<CreateProductDto> pr = new ArrayList<>();
         List<String> brand = BrandEnum.getAllBrandNames();
-
         for(int i = 0; i < brand.size(); i++) {
             rateLimiter.acquire(); // 1초에 1명만 이 라인을 통과합니다.
 
-        // 🚀 Reactive 방식으로 API 호출
-        NaverShoppingResponse response = apiClient.searchMultiplePagesReactive(
+            // 🚀 Reactive 방식으로 API 호출
+            NaverShoppingResponse response = apiClient.searchMultiplePagesReactive(
                     brand.get(i) + " " +  keyword , count, display, "sim");
 
-        if (response == null || response.getItems() == null || response.getItems().isEmpty()) {
+            if (response == null || response.getItems() == null || response.getItems().isEmpty()) {
                 log.warn("'{}{}'에 대한 검색 결과 없음. 다음 브랜드로 넘어갑니다.", brand.get(i), keyword);
                 continue; // return 0; (X) -> continue; (O)
-        }
+            }
+
+
 
             List<CreateProductDto> list = response.getItems().stream()
-                .limit(count)
+                    .limit(count)
                     .map(item -> {  // 병렬 스트림 제거 (트랜잭션 문제 해결)
-                    PRODUCT product = productMapper.map(item, category, seller);
-                        CreateProductDto createProductDto = new CreateProductDto((Product) product, item.getImage());
 
+                        PRODUCT product = productMapper.map(item, category, seller);
+
+                        CreateProductDto createProductDto = new CreateProductDto((Product) product, item.getImage());
                         //  옵션 생성
-                    if (optionGenerator != null && optionGenerator.needsOptions(categoryName)) {
-                        optionGenerator.generateAndAddOptions(product, categoryName);
-                    }
+                        if (optionGenerator != null && optionGenerator.needsOptions(categoryName)) {
+                            optionGenerator.generateAndAddOptions(product, categoryName);
+                        }
+
 
                         return createProductDto;
-                })
-                .toList();
+                    })
+                    .toList();
+
 
             pr.addAll(list);
         }
+
+
+        // 🚀 Reactive 방식으로 API 호출
+//        NaverShoppingResponse response = apiClient.searchMultiplePagesReactive(
+//                keyword, count, display, "sim");
+
+//        if (response == null || response.getItems() == null || response.getItems().isEmpty()) {
+//            return 0;
+//        }
+
+        // 병렬 스트림으로 Product 변환
+//        List<PRODUCT> products = response.getItems().stream()
+//                .limit(count)
+//                .parallel()
+//                .map(item -> {
+//                    PRODUCT product = productMapper.map(item, category, seller);
+//
+//                   //  옵션 생성
+//                    if (optionGenerator != null && optionGenerator.needsOptions(categoryName)) {
+//                        optionGenerator.generateAndAddOptions(product, categoryName);
+//                    }
+//
+//
+//                    return product;
+//                })
+//                .toList();
+
+//        log.info("{}개 상품 변환 완료", products.size());
 
         // 배치 저장
         return saveProductsBatch(pr);
@@ -280,30 +312,30 @@ public abstract class BaseCrawlingService<PRODUCT, CATEGORY, USER> {
                             pr.changeDuplicatedName();
                             products.add(pr);
                         }
-                        
+
                         // 1. Product 배치 저장 (ID가 자동으로 채워짐)
                         int actuallySavedProductCount = productProviderImpl.saveAll(products);
-                        
+
                         if (actuallySavedProductCount == 0) {
                             log.warn("⚠️ 배치 저장 실패: 상품 0개 저장됨 (요청: {}개)", products.size());
                             return 0;
                         }
-                        
+
                         if (actuallySavedProductCount < products.size()) {
-                            log.warn("⚠️ 배치 저장 부분 실패: 요청 {}개 중 {}개만 저장됨", 
+                            log.warn("⚠️ 배치 저장 부분 실패: 요청 {}개 중 {}개만 저장됨",
                                     products.size(), actuallySavedProductCount);
                         }
-                        
+
                         // 실제 저장된 상품만 사용 (ID가 할당된 것들)
                         List<Product> savedProducts = products.stream()
                                 .filter(p -> p.getId() != null)
                                 .toList();
-                        
+
                         if (savedProducts.isEmpty()) {
                             log.warn("⚠️ 저장된 상품이 없습니다 (ID가 null)");
                             return 0;
                         }
-                        
+
                         // 2. ProductImage 배치 생성 및 저장
                         List<ProductImage> images = new ArrayList<>();
                         for (int j = 0; j < batch.size() && j < savedProducts.size(); j++) {
@@ -315,7 +347,7 @@ public abstract class BaseCrawlingService<PRODUCT, CATEGORY, USER> {
                         if (!images.isEmpty()) {
                             imageProviderIml.saveAll(images);
                         }
-                        
+
                         // 3. ProductDetail 배치 생성 및 저장
                         List<ProductDetail> details = new ArrayList<>();
                         for (Product savedProduct : savedProducts) {
@@ -325,21 +357,21 @@ public abstract class BaseCrawlingService<PRODUCT, CATEGORY, USER> {
                             }
                         }
                         productDetailProviderImpl.saveAll(details);
-                        
+
                         // 4. ProductOptionMapping 배치 생성 및 저장
                         List<ProductOptionMapping> mappings = new ArrayList<>();
                         int detailIndex = 0;
-                        
+
                         for (int productIdx = 0; productIdx < savedProducts.size(); productIdx++) {
                             Product savedProduct = savedProducts.get(productIdx);
                             Long sizeOpNum = 0L;
                             Long colorOpNum = 0L;
-                            
+
                             for (int k = 0; k < 4; k++) {
                                 if (detailIndex >= details.size()) break;
-                                
+
                                 ProductDetail savedProductDetail = details.get(detailIndex++);
-                                
+
                                 // Option ID 생성
                                 Long randomColorOpNum = ThreadLocalRandom.current().nextLong(1, 13);
                                 if (colorOpNum.equals(randomColorOpNum)) {
@@ -353,7 +385,7 @@ public abstract class BaseCrawlingService<PRODUCT, CATEGORY, USER> {
                                 } else {
                                     colorOpNum = randomColorOpNum;
                                 }
-                                
+
                                 Long randomSizeOpNum = ThreadLocalRandom.current().nextLong(13, 42);
                                 if (sizeOpNum.equals(randomSizeOpNum)) {
                                     while (true) {
@@ -366,11 +398,11 @@ public abstract class BaseCrawlingService<PRODUCT, CATEGORY, USER> {
                                 } else {
                                     sizeOpNum = randomSizeOpNum;
                                 }
-                                
+
                                 // Option 조회
                                 Option colorOp = optionProviderImpl.findById(colorOpNum);
                                 Option sizeOp = optionProviderImpl.findById(sizeOpNum);
-                                
+
                                 // Option이 null이면 스킵
                                 if (colorOp != null && sizeOp != null) {
                                     ProductOptionMapping colorOpm = ProductOptionMapping.createDefaultProductOptionMapping(
@@ -382,27 +414,26 @@ public abstract class BaseCrawlingService<PRODUCT, CATEGORY, USER> {
                                 }
                             }
                         }
-                        
+
                         if (!mappings.isEmpty()) {
                             optionMappingProviderImpl.saveAll(mappings);
                         }
-                        
+
                         // 실제 저장된 상품 개수 반환
                         return actuallySavedProductCount;
-
                     } catch (Exception e) {
                         log.error("배치 저장 중 에러: {}", e.getMessage(), e);
                         status.setRollbackOnly();
                         throw e;
                     }
                 });
-                
+
                 if (batchSaved != null && batchSaved > 0) {
                     savedCount += batchSaved;
                 } else {
                     skippedCount += batch.size();
                 }
-                
+
             } catch (org.springframework.transaction.CannotCreateTransactionException e) {
                 log.error("⚠️ 배치 트랜잭션 생성 실패: {}", e.getMessage());
                 skippedCount += batch.size();
@@ -410,16 +441,17 @@ public abstract class BaseCrawlingService<PRODUCT, CATEGORY, USER> {
                 log.error("배치 저장 실패: {}-{}", i, end, e);
                 skippedCount += batch.size();
             }
-            
+
             if ((i + batchSize) % 500 == 0 || (i + batchSize) >= createProductDtos.size()) {
-                log.info("저장 진행 상황: {}/{} (저장됨: {}개, 스킵됨: {}개)", 
-                        Math.min(i + batchSize, createProductDtos.size()), 
+                log.info("저장 진행 상황: {}/{} (저장됨: {}개, 스킵됨: {}개)",
+                        Math.min(i + batchSize, createProductDtos.size()),
                         createProductDtos.size(), savedCount, skippedCount);
             }
         }
 
-        log.info("💾 배치 저장 완료: 총 {}개 중 저장됨 {}개, 스킵됨 {}개", 
+        log.info("💾 배치 저장 완료: 총 {}개 중 저장됨 {}개, 스킵됨 {}개",
                 createProductDtos.size(), savedCount, skippedCount);
+
         return savedCount;
     }
 
@@ -431,11 +463,11 @@ public abstract class BaseCrawlingService<PRODUCT, CATEGORY, USER> {
             Integer result = transactionTemplate.execute(status -> {
                 try {
                     Product pr = productDto.getProduct();
+
                     pr.changeDuplicatedName();
-
                     Product savedProduct = productProviderImpl.save(pr);
-                    String mainImg = productDto.getMainImg();
 
+                    String mainImg = productDto.getMainImg();
                     ProductImage img = ProductImage.createDefaultProductImage(ProductImageType.MAIN, mainImg, savedProduct);
                     imageProviderIml.save(img);
 
@@ -482,42 +514,41 @@ public abstract class BaseCrawlingService<PRODUCT, CATEGORY, USER> {
 
                         // Option이 null이면 해당 디테일은 저장하지 않고 스킵
                         if (colorOp == null || sizeOp == null) {
-                            log.warn("Option을 찾을 수 없음: colorOpId={}, sizeOpId={}, ProductDetail 저장은 완료됨", 
+                            log.warn("Option을 찾을 수 없음: colorOpId={}, sizeOpId={}, ProductDetail 저장은 완료됨",
                                     colorOpNum, sizeOpNum);
                             continue; // 이 디테일의 OptionMapping만 스킵, 다음 디테일로 진행
                         }
 
                         ProductOptionMapping colorOpm = ProductOptionMapping.createDefaultProductOptionMapping(colorOp, savedProductDetail);
                         ProductOptionMapping sizeOpm = ProductOptionMapping.createDefaultProductOptionMapping(sizeOp, savedProductDetail);
+
                         optionMappingProviderImpl.save(colorOpm);
                         optionMappingProviderImpl.save(sizeOpm);
                         mappingCount += 2;
                     }
 
                     // 트랜잭션 커밋 성공 확인
-                    log.debug("상품 저장 완료: ProductId={}, Detail={}개, OptionMapping={}개", 
+                    log.debug("상품 저장 완료: ProductId={}, Detail={}개, OptionMapping={}개",
                             savedProduct.getId(), detailCount, mappingCount);
                     return 1;
-
                 } catch (Exception e) {
                     log.error("트랜잭션 내부 에러 (롤백됨): {}", e.getMessage(), e);
                     status.setRollbackOnly();
                     throw e;
                 }
             });
-            
+
             // result가 null이면 트랜잭션 실패
             if (result == null || result == 0) {
                 log.warn("상품 저장 실패: 트랜잭션 결과가 null 또는 0");
                 return 0;
             }
             return result;
-
         } catch (org.springframework.transaction.CannotCreateTransactionException e) {
             log.error("⚠️ 트랜잭션 생성 실패 (EntityManager 접근 불가): {}", e.getMessage());
             return 0;
         } catch (Exception e) {
-            log.error("상품 저장 트랜잭션 실패: error={}, message={}", 
+            log.error("상품 저장 트랜잭션 실패: error={}, message={}",
                     e.getClass().getSimpleName(), e.getMessage());
             // 트랜잭션이 롤백되었으므로 0 반환
             return 0;

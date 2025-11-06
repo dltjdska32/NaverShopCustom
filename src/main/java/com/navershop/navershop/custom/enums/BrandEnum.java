@@ -1,60 +1,68 @@
 package com.navershop.navershop.custom.enums;
 
+import lombok.Getter;
+
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
-/**
- * 브랜드 목록 Enum
- */
+@Getter
 public enum BrandEnum {
-    // RandomBrand에 있는 브랜드 목록을 여기에 추가하거나
-    // getAllBrandNames() 메서드에서 RandomBrand를 참조하도록 할 수 있습니다.
-    
-    BRAND_1("나무결"),
-    BRAND_2("Woodora"),
-    BRAND_3("더우드룸 (The Wood Room)"),
-    BRAND_4("Oakline"),
-    BRAND_5("포레스트홈 (Forest Home)");
-    
-    private final String name;
-    
-    BrandEnum(String name) {
-        this.name = name;
+
+    NIKE("SHOE_001", "나이키", "이민호"),
+    ADIDAS("SHOE_002", "아디다스", "김지수"),
+    NEW_BALANCE("SHOE_003", "뉴발란스", "박서준"),
+    CONVERSE("SHOE_004", "컨버스", "최유진"),
+    VANS("SHOE_005", "반스", "강태오"),
+    PUMA("SHOE_006", "푸마", "윤서아"),
+    REEBOK("SHOE_007", "리복", "정해인"),
+    ASICS("SHOE_008", "아식스", "김태리"),
+    HOKA("SHOE_009", "호카", "송강"),
+    ON_RUNNING("SHOE_010", "온러닝", "한소희"),
+    SALOMON("SHOE_011", "살로몬", "이도현"),
+    CROCS("SHOE_012", "크록스", "박은빈"),
+    BIRKENSTOCK("SHOE_013", "버켄스탁", "차은우"),
+    DR_MARTENS("SHOE_014", "닥터마틴", "고윤정"),
+    UGG("SHOE_015", "어그", "황민현"),
+    TIMBERLAND("SHOE_016", "팀버랜드", "김유정"),
+    SKECHERS("SHOE_017", "스케쳐스", "이재욱"),
+    LACOSTE("SHOE_018", "라코스테", "김다미"),
+    CLARKS("SHOE_019", "클락스", "안효섭"),
+    CAMPER("SHOE_020", "캠퍼", "신혜선"),
+    GOLDEN_GOOSE("SHOE_021", "골든구스", "이준호"),
+    BALENCIAGA("SHOE_022", "발렌시아가", "임윤아"),
+    MAISON_MARGIELA("SHOE_023", "메종 마르지엘라", "뷔"),
+    GUCCI("SHOE_024", "구찌", "제니"),
+    PRADA("SHOE_025", "프라다", "송중기"),
+    ALDO("SHOE_026", "알도", "아이유"),
+    GEOX("SHOE_027", "제옥스", "박보검"),
+    REPETTO("SHOE_028", "레페토", "수지"),
+    MERRELL("SHOE_029", "메렐", "유연석"),
+    FILA("SHOE_030", "휠라", "김고은");
+
+    // Enum 필드 (DB 컬럼과 매칭)
+    private final String brandCode;
+    private final String brandName;
+    private final String presidentName;
+
+
+    BrandEnum(String brandCode, String brandName, String presidentName) {
+        this.brandCode = brandCode;
+        this.brandName = brandName;
+        this.presidentName = presidentName;
     }
-    
-    public String getName() {
-        return name;
-    }
-    
+
+
+
     /**
-     * 모든 브랜드 이름 목록 반환
-     * RandomBrand의 브랜드 목록을 사용하거나
-     * 여기서 직접 리스트로 반환할 수 있습니다.
+     * 모든 브랜드의 '한글 이름' 리스트(List<String>)를 반환합니다.
+     * @return List<String> (모든 브랜드의 이름)
      */
     public static List<String> getAllBrandNames() {
-        // TODO: RandomBrand 컴포넌트를 주입받아 사용하거나
-        // 여기서 직접 리스트로 반환
-        return Arrays.asList(
-            "나무결", "Woodora", "더우드룸 (The Wood Room)", "Oakline", "포레스트홈 (Forest Home)",
-            "Timberia", "라운우드 (Roundwood)", "Mossé (모쎄)", "그루브우드 (Groove Wood)", "숲결 (Supgyeol)",
-            "Hjem", "Luno", "미누홈 (Minuhome)", "Alba House", "노드레 (Nordre)",
-            "Maison Kora", "Evra", "Lineé", "루미에홈 (Lumière Home)", "Skané",
-            "Cozyne", "하우미 (Howme)", "홈바운드 (Homebound)", "Dailynest", "플레니홈 (Plenihome)",
-            "루미하우스 (Lumihouse)", "Nuvéa", "오하우스 (Oh! House)", "LittleCorner", "스윗룸 (Sweetroom)",
-            "Modenza", "라인하우스 (Linehouse)", "Forma", "아틀리에홈 (Atelier Home)", "Bravia",
-            "ModoHome", "아르벨 (Arvel)", "Corevo", "Roomer", "스테이모드 (StayMode)",
-            "Handen", "Woodmark", "하늘목공소 (Sky Workshop)", "BentoWood", "Treeform",
-            "카프라 (Kapra)", "Madelee", "수공방 (Sugongbang)", "ArdenWood", "리빙크래프트 (LivingCraft)",
-            "오크앤하우스 (Oak & House)", "Verano", "LaViel", "Heritage Home", "Maison Blu",
-            "오브제하우스 (Objet House)", "Florin", "Chêne (셴)", "Armond", "엘레노아 (Elenoa)",
-            "Roomie", "홈톡 (Hometalk)", "토토홈 (TotoHome)", "Nestie", "라룸 (Laroom)",
-            "Popline", "Homyday", "스튜디오룸 (Studio Room)", "DecoBuddy", "리브홈 (LiveHome)",
-            "Plantry", "에코룸 (EcoRoom)", "Grainly", "Leafnote", "하우스포레 (House Foret)",
-            "Greenea", "Woodplain", "루트하우스 (Root House)", "Arboris", "수피홈 (SupiHome)",
-            "하우젠 (Hauzen)", "가온홈 (GaonHome)", "온결 (OnGyeol)", "담소가구 (Damsoga)", "연우리빙 (Yeonwoo Living)",
-            "모담 (Modam)", "소담하우스 (Sodam House)", "다온홈 (DaonHome)", "채온 (Chaon)", "나린가구 (Narin Furniture)",
-            "Flatory", "루미룸 (LumiRoom)", "Moona", "FormaNest", "RoomLab",
-            "메종루트 (Maison Route)", "Layered Home", "Ardora", "라인앤홈 (Line & Home)", "Velano"
-        );
+        // Java 8 스트림을 사용하여 'brandName' 필드만 추출
+        return Arrays.stream(BrandEnum.values())
+                .map(BrandEnum::getBrandName) // .map(brand -> brand.getBrandName()) 과 동일
+                .collect(Collectors.toList());
     }
 }
+
